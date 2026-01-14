@@ -53,6 +53,12 @@ export interface LinkElement {
 	marks: LinkMarkElement[];
 }
 
+export type InlineElement =
+	| TextElement
+	| LinkElement
+	| EmphasisElement
+	| CardElementLink;
+
 export interface CardElementLink {
 	type: string;
 	attrs: {
@@ -62,7 +68,7 @@ export interface CardElementLink {
 
 export interface ParagraphElement {
 	type: string;
-	content: (TextElement | LinkElement | EmphasisElement | CardElementLink)[];
+	content: InlineElement[];
 }
 export interface EmphasisElement {
 	type: "text";
@@ -117,7 +123,7 @@ export interface TaskItemElement {
 		localId: string;
 		state: "DONE" | "TODO";
 	};
-	content: TextElement[];
+	content: InlineElement[];
 }
 
 export interface TaskListItemElement {

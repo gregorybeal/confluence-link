@@ -194,17 +194,15 @@ export default class ADFBuilder {
 		};
 	}
 
-	taskItem(text: string, isChecked: boolean): TaskItemElement {
+	taskItemFromContent(
+		content: TaskItemElement["content"],
+		isChecked: boolean,
+		localId: string
+	): TaskItemElement {
 		return {
 			type: "taskItem",
-			attrs: { localId: text, state: isChecked ? "DONE" : "TODO" },
-			content: [
-				{
-					type: "text",
-					text: text,
-					marks: [],
-				},
-			],
+			attrs: { localId: localId, state: isChecked ? "DONE" : "TODO" },
+			content,
 		};
 	}
 

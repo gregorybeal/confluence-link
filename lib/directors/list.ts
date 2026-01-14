@@ -3,6 +3,7 @@ import ParagraphDirector from "./paragraph";
 import {
 	BulletListItemElement,
 	OrderedListElement,
+	ParagraphElement,
 	TaskListItemElement,
 } from "lib/builder/types";
 
@@ -53,9 +54,19 @@ class ListDirector extends ParagraphDirector {
 				);
 
 				if (isTaskList) {
-					return this.builder.taskItem(
-						li.textContent?.trim()!,
-						Boolean(li.getAttr("data-task"))
+					const taskContent = await this.buildTaskContent(
+						li as HTMLLIElement,
+						filePath,
+						paragraphDirector,
+						itemsAdfBuilder
+					);
+					const isChecked = this.isTaskChecked(li as HTMLElement);
+					const localId = this.taskLocalId(li as HTMLElement, taskContent);
+
+					return this.builder.taskItemFromContent(
+						taskContent,
+						isChecked,
+						localId
 					);
 				}
 
@@ -103,6 +114,87 @@ class ListDirector extends ParagraphDirector {
 			// @ts-ignore
 			list.content.push(...items);
 		}
+	}
+
+	private async buildTaskContent(
+		li: HTMLLIElement,
+		filePath: string,
+		paragraphDirector: ParagraphDirector,
+		itemsAdfBuilder: ADFBuilder
+	): Promise<ParagraphElement["content"]> {
+		const p = createEl("p");
+
+		for (const child of Array.from(li.childNodes)) {
+			if (
+				child.nodeType === Node.ELEMENT_NODE &&
+				["OL", "UL"].includes(child.nodeName)
+			) {
+				continue;
+			}
+
+			if (
+				child.nodeType === Node.ELEMENT_NODE &&
+				child.nodeName === "INPUT" &&
+				(child as HTMLInputElement).type === "checkbox"
+			) {
+				continue;
+			}
+
+			if (child.textContent === "\n") {
+				continue;
+			}
+
+			if (child.nodeType === Node.ELEMENT_NODE) {
+				const element = child as HTMLElement;
+				const cloned = element.cloneNode(true) as HTMLElement;
+				cloned
+					.querySelectorAll('input[type="checkbox"]')
+					.forEach((checkbox) => checkbox.remove());
+				p.append(cloned);
+			} else {
+				p.append(child.cloneNode(true));
+			}
+		}
+
+		await paragraphDirector.addItems(p as HTMLParagraphElement, filePath, true);
+		const built = itemsAdfBuilder.build();
+		const paragraph = built.find(
+			(item) => item.type === "paragraph"
+		) as ParagraphElement | undefined;
+		const content = paragraph?.content ?? [];
+
+		if (content.length > 0) {
+			return content;
+		}
+
+		const fallbackText =
+			p.textContent?.trim() || li.textContent?.trim() || "task-item";
+
+		return [this.builder.textItem(fallbackText)];
+	}
+
+	private isTaskChecked(li: HTMLElement): boolean {
+		const dataTask = li.getAttr("data-task");
+		if (dataTask) {
+			return dataTask.trim().toLowerCase() === "x";
+		}
+
+		const checkbox = li.querySelector(
+			'input[type="checkbox"]'
+		) as HTMLInputElement | null;
+		return checkbox?.checked ?? false;
+	}
+
+	private taskLocalId(
+		li: HTMLElement,
+		taskContent: ParagraphElement["content"]
+	): string {
+		const contentText = taskContent
+			.map((item) => ("text" in item ? item.text : ""))
+			.join("")
+			.trim();
+
+		return contentText || li.textContent?.trim() || "task-item";
 	}
 
 	isTasklist(node: HTMLOListElement | HTMLUListElement): boolean {
