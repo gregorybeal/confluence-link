@@ -117,7 +117,7 @@ export default class ADFBuilder {
 		return {
 			type: "taskList",
 			content: taskListItems,
-			attrs: { localId: "Task List" },
+			attrs: { localId: this.localId() },
 		};
 	}
 
@@ -204,6 +204,16 @@ export default class ADFBuilder {
 			attrs: { localId: localId, state: isChecked ? "DONE" : "TODO" },
 			content,
 		};
+	}
+
+	private localId(): string {
+		if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+			return crypto.randomUUID();
+		}
+
+		return `local-${Date.now().toString(16)}-${Math.random()
+			.toString(16)
+			.slice(2, 10)}`;
 	}
 
 	mediaItem(

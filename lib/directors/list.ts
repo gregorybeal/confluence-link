@@ -5,6 +5,7 @@ import {
 	OrderedListElement,
 	ParagraphElement,
 	TaskListItemElement,
+	AdfElement,
 } from "lib/builder/types";
 
 class ListDirector extends ParagraphDirector {
@@ -141,14 +142,22 @@ class ListDirector extends ParagraphDirector {
 		filePath: string,
 		paragraphDirector: ParagraphDirector,
 		itemsAdfBuilder: ADFBuilder
-	): Promise<ParagraphElement["content"]> {
+	): Promise<AdfElement[]> {
 		const p = createEl("p");
+		const subLists: Array<
+			BulletListItemElement | OrderedListElement | TaskListItemElement
+		> = [];
 
 		for (const child of Array.from(li.childNodes)) {
 			if (
 				child.nodeType === Node.ELEMENT_NODE &&
 				["OL", "UL"].includes(child.nodeName)
 			) {
+				const nestedLists = await this.buildLists(
+					child as HTMLOListElement | HTMLUListElement,
+					filePath
+				);
+				subLists.push(...nestedLists);
 				continue;
 			}
 
@@ -178,19 +187,17 @@ class ListDirector extends ParagraphDirector {
 
 		await paragraphDirector.addItems(p as HTMLParagraphElement, filePath, true);
 		const built = itemsAdfBuilder.build();
-		const paragraph = built.find(
+		let paragraph = built.find(
 			(item) => item.type === "paragraph"
 		) as ParagraphElement | undefined;
-		const content = paragraph?.content ?? [];
 
-		if (content.length > 0) {
-			return content;
+		if (!paragraph || paragraph.content.length === 0) {
+			const fallbackText =
+				p.textContent?.trim() || li.textContent?.trim() || "task-item";
+			paragraph = this.builder.paragraphItem(fallbackText);
 		}
 
-		const fallbackText =
-			p.textContent?.trim() || li.textContent?.trim() || "task-item";
-
-		return [this.builder.textItem(fallbackText)];
+		return [paragraph, ...subLists];
 	}
 
 	private isTaskChecked(li: HTMLElement): boolean {
@@ -215,12 +222,16 @@ class ListDirector extends ParagraphDirector {
 
 	private taskLocalId(
 		li: HTMLElement,
-		taskContent: ParagraphElement["content"]
+		taskContent: AdfElement[]
 	): string {
-		const contentText = taskContent
-			.map((item) => ("text" in item ? item.text : ""))
-			.join("")
-			.trim();
+		const paragraph = taskContent.find(
+			(item) => item.type === "paragraph"
+		) as ParagraphElement | undefined;
+		const contentText =
+			paragraph?.content
+				.map((item) => ("text" in item ? item.text : ""))
+				.join("")
+				.trim() ?? "";
 
 		return contentText || li.textContent?.trim() || "task-item";
 	}

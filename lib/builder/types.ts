@@ -123,7 +123,7 @@ export interface TaskItemElement {
 		localId: string;
 		state: "DONE" | "TODO";
 	};
-	content: InlineElement[];
+	content: AdfElement[];
 }
 
 export interface TaskListItemElement {
