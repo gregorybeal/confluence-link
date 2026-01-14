@@ -9,111 +9,131 @@ import {
 
 class ListDirector extends ParagraphDirector {
 	async addList(node: HTMLOListElement | HTMLUListElement, filePath: string) {
-		this.builder.addItem(await this.buildList(node, filePath));
+		const lists = await this.buildLists(node, filePath);
+		lists.forEach((list) => this.builder.addItem(list));
 	}
 
-	async buildList(
+	async buildLists(
 		node: HTMLOListElement | HTMLUListElement,
 		filePath: string
 	): Promise<
-		BulletListItemElement | OrderedListElement | TaskListItemElement
+		Array<BulletListItemElement | OrderedListElement | TaskListItemElement>
 	> {
-		const isTaskList = this.isTasklist(node);
-		let list = this.builder.bulletListItem([]);
+		const lists: Array<
+			BulletListItemElement | OrderedListElement | TaskListItemElement
+		> = [];
+		const listType = node.nodeName === "OL" ? "ordered" : "bullet";
+		let currentList:
+			| BulletListItemElement
+			| OrderedListElement
+			| TaskListItemElement
+			| null = null;
+		let currentKind: "task" | "standard" | null = null;
 
-		if (node.nodeName == "OL") {
-			list = this.builder.orderedListItem([]);
+		for (const li of Array.from(node.children)) {
+			const isTaskItem = this.isTaskItem(li as HTMLElement);
+			const nextKind: "task" | "standard" = isTaskItem ? "task" : "standard";
+
+			if (!currentList || currentKind !== nextKind) {
+				if (currentList) {
+					lists.push(currentList);
+				}
+				if (nextKind === "task") {
+					currentList = this.builder.taskListItem([]);
+				} else if (listType === "ordered") {
+					currentList = this.builder.orderedListItem([]);
+				} else {
+					currentList = this.builder.bulletListItem([]);
+				}
+				currentKind = nextKind;
+			}
+
+			const itemsAdfBuilder = new ADFBuilder();
+			const paragraphDirector = new ParagraphDirector(
+				itemsAdfBuilder,
+				this.fileAdaptor,
+				this.app,
+				this.client,
+				this.settings,
+				this.labelDirector
+			);
+
+			if (isTaskItem) {
+				const taskContent = await this.buildTaskContent(
+					li as HTMLLIElement,
+					filePath,
+					paragraphDirector,
+					itemsAdfBuilder
+				);
+				const isChecked = this.isTaskChecked(li as HTMLElement);
+				const localId = this.taskLocalId(li as HTMLElement, taskContent);
+
+				(currentList as TaskListItemElement).content.push(
+					this.builder.taskItemFromContent(taskContent, isChecked, localId)
+				);
+			} else {
+				const listItem = await this.buildStandardListItem(
+					li as HTMLLIElement,
+					filePath,
+					paragraphDirector,
+					itemsAdfBuilder
+				);
+				(currentList as BulletListItemElement | OrderedListElement).content.push(
+					listItem
+				);
+			}
 		}
 
-		if (isTaskList) {
-			// @ts-ignore
-			list = this.builder.taskListItem([]);
+		if (currentList) {
+			lists.push(currentList);
 		}
 
-		await this.buildListItems(node, isTaskList, filePath, list);
-
-		return list;
+		return lists;
 	}
 
-	async buildListItems(
-		node: HTMLOListElement | HTMLUListElement,
-		isTaskList: boolean,
+	private async buildStandardListItem(
+		li: HTMLLIElement,
 		filePath: string,
-		list: BulletListItemElement | OrderedListElement | TaskListItemElement
+		paragraphDirector: ParagraphDirector,
+		itemsAdfBuilder: ADFBuilder
 	) {
-		const items = await Promise.all(
-			Array.from(node.children).map(async (li) => {
-				const itemsAdfBuilder = new ADFBuilder();
-				const paragraphDirector = new ParagraphDirector(
-					itemsAdfBuilder,
-					this.fileAdaptor,
-					this.app,
-					this.client,
-					this.settings,
-					this.labelDirector
+		let p = createEl("p");
+		const subLists: Array<
+			BulletListItemElement | OrderedListElement | TaskListItemElement
+		> = [];
+
+		for (const child of Array.from(li.childNodes)) {
+			if (
+				child.nodeType === Node.ELEMENT_NODE &&
+				["OL", "UL"].includes(child.nodeName)
+			) {
+				const nestedLists = await this.buildLists(
+					child as HTMLOListElement | HTMLUListElement,
+					filePath
 				);
-
-				if (isTaskList) {
-					const taskContent = await this.buildTaskContent(
-						li as HTMLLIElement,
-						filePath,
-						paragraphDirector,
-						itemsAdfBuilder
-					);
-					const isChecked = this.isTaskChecked(li as HTMLElement);
-					const localId = this.taskLocalId(li as HTMLElement, taskContent);
-
-					return this.builder.taskItemFromContent(
-						taskContent,
-						isChecked,
-						localId
-					);
+				subLists.push(...nestedLists);
+			} else {
+				if (child.textContent == "\n") {
+					continue;
 				}
 
-				let p = createEl("p");
-				let subList = null;
-
-				for (const child of Array.from(li.childNodes)) {
-					if (
-						child.nodeType === Node.ELEMENT_NODE &&
-						["OL", "UL"].includes(child.nodeName)
-					) {
-						subList = await this.buildList(
-							child as HTMLOListElement | HTMLUListElement,
-							filePath
-						);
-					} else {
-						if (child.textContent == "\n") {
-							continue;
-						}
-
-						if (
-							child.nodeType == Node.ELEMENT_NODE &&
-							child.nodeName == "P"
-						) {
-							p = child as HTMLParagraphElement;
-							continue;
-						}
-
-						p.append(child);
-					}
+				if (child.nodeType == Node.ELEMENT_NODE && child.nodeName == "P") {
+					p = child as HTMLParagraphElement;
+					continue;
 				}
 
-				await paragraphDirector.addItems(p, filePath, true);
-				const listItem = this.builder.listItem(itemsAdfBuilder.build());
-
-				if (subList) {
-					listItem.content.push(subList);
-				}
-
-				return listItem;
-			})
-		);
-
-		if (items) {
-			// @ts-ignore
-			list.content.push(...items);
+				p.append(child);
+			}
 		}
+
+		await paragraphDirector.addItems(p, filePath, true);
+		const listItem = this.builder.listItem(itemsAdfBuilder.build());
+
+		if (subLists.length > 0) {
+			listItem.content.push(...subLists);
+		}
+
+		return listItem;
 	}
 
 	private async buildTaskContent(
@@ -185,6 +205,14 @@ class ListDirector extends ParagraphDirector {
 		return checkbox?.checked ?? false;
 	}
 
+	private isTaskItem(li: HTMLElement): boolean {
+		const dataTask = li.getAttr("data-task");
+		if (dataTask) {
+			return true;
+		}
+		return Boolean(li.querySelector('input[type="checkbox"]'));
+	}
+
 	private taskLocalId(
 		li: HTMLElement,
 		taskContent: ParagraphElement["content"]
@@ -195,13 +223,6 @@ class ListDirector extends ParagraphDirector {
 			.trim();
 
 		return contentText || li.textContent?.trim() || "task-item";
-	}
-
-	isTasklist(node: HTMLOListElement | HTMLUListElement): boolean {
-		return (
-			node.querySelectorAll("li").length ===
-			node.querySelectorAll('input[type="checkbox"]').length
-		);
 	}
 }
 
